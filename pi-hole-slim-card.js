@@ -1,4 +1,4 @@
-const CARD_VERSION = "2026.04.20-1";
+const CARD_VERSION = "2026.05.05-1";
 const HOLD_DELAY_MS = 500;
 
 const SECTION_DEFINITIONS = [
@@ -65,6 +65,7 @@ function getDefaultConfig() {
     title: "",
     pi_hole_url: "",
     status_switch: "",
+    transparent_background: false,
     size: "large",
     sub_entity_size: "small",
     sections: SECTION_DEFINITIONS.map((section) => ({
@@ -90,6 +91,7 @@ function normalizeConfig(config) {
     title: config?.title ?? "",
     pi_hole_url: config?.pi_hole_url ?? "",
     status_switch: config?.status_switch ?? "",
+    transparent_background: Boolean(config?.transparent_background),
     size: config?.size === "compact" ? "compact" : "large",
     sub_entity_size: ["medium", "large"].includes(config?.sub_entity_size) ? config.sub_entity_size : "small",
     sections: SECTION_DEFINITIONS.map((definition) => {
@@ -374,6 +376,9 @@ class PiHoleSlimCard extends HTMLElement {
     const sizeClass = this._config.size === "compact" ? "card--compact" : "card--large";
     const isDimmed = this._isDimmedByStatus();
     const subEntitySize = this._config.sub_entity_size || "small";
+    const cardBackground = this._config.transparent_background
+      ? "rgba(0, 0, 0, 0)"
+      : "var(--ha-card-background, var(--card-background-color, #111827))";
 
     this.shadowRoot.innerHTML = `
       <ha-card>
@@ -392,9 +397,7 @@ class PiHoleSlimCard extends HTMLElement {
         ha-card {
           overflow: hidden;
           border-radius: 22px;
-          background:
-            linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0)),
-            var(--ha-card-background, var(--card-background-color, #111827));
+          background: ${cardBackground};
         }
 
         .card {
@@ -692,6 +695,14 @@ class PiHoleSlimCardEditor extends HTMLElement {
     this._emitConfig();
   }
 
+  _updateTransparentBackground(value) {
+    this._config = {
+      ...this._config,
+      transparent_background: Boolean(value),
+    };
+    this._emitConfig();
+  }
+
   _updateSection(key, field, value) {
     this._config = {
       ...this._config,
@@ -727,16 +738,17 @@ class PiHoleSlimCardEditor extends HTMLElement {
 
     this.shadowRoot.innerHTML = `
       <div class="editor">
-        <ha-textfield id="title" label="Card title (optional)"></ha-textfield>
+        <ha-textfield id="title" label="Card Title (Optional)"></ha-textfield>
         <div class="editor-section">
-          <div class="editor-section__title">Pi-hole settings</div>
-          <ha-textfield id="pi_hole_url" label="Pi-hole base URL"></ha-textfield>
+          <div class="editor-section__title">Pi-Hole Settings</div>
+          <ha-textfield id="pi_hole_url" label="Pi-Hole Base URL"></ha-textfield>
           <ha-selector id="status_switch"></ha-selector>
         </div>
         <div class="editor-section">
-          <div class="editor-section__title">Card settings</div>
+          <div class="editor-section__title">Card Settings</div>
           <ha-selector id="size"></ha-selector>
           <ha-selector id="sub_entity_size"></ha-selector>
+          <ha-selector id="transparent_background"></ha-selector>
         </div>
         <div class="editor-section">
           <div class="editor-section__title">Widgets</div>
@@ -746,7 +758,7 @@ class PiHoleSlimCardEditor extends HTMLElement {
                 <span class="panel-header__title" data-panel-title="${definition.key}">${definition.label}</span>
               </div>
               <div class="panel-grid">
-                <div class="field-label">Source entity</div>
+                <div class="field-label">Source Entity</div>
                 <ha-selector
                   data-key="${definition.key}"
                   data-field="entity"
@@ -755,9 +767,9 @@ class PiHoleSlimCardEditor extends HTMLElement {
                 <ha-textfield
                   data-key="${definition.key}"
                   data-field="unit"
-                  label="Unit override"
+                  label="Unit Override"
                 ></ha-textfield>
-                <div class="field-label">Sub entity</div>
+                <div class="field-label">Sub Entity</div>
                 <ha-selector
                   data-key="${definition.key}"
                   data-field="sub_entity"
@@ -766,13 +778,13 @@ class PiHoleSlimCardEditor extends HTMLElement {
                 <ha-textfield
                   data-key="${definition.key}"
                   data-field="sub_unit"
-                  label="Unit override"
+                  label="Unit Override"
                 ></ha-textfield>
                 <div class="field-label">Card</div>
                 <ha-textfield
                   data-key="${definition.key}"
                   data-field="name"
-                  label="Label override"
+                  label="Label Override"
                 ></ha-textfield>
                 <ha-selector
                   data-key="${definition.key}"
@@ -782,7 +794,7 @@ class PiHoleSlimCardEditor extends HTMLElement {
                 <ha-textfield
                   data-key="${definition.key}"
                   data-field="url"
-                  label="Tile URL (relative to Pi-hole URL)"
+                  label="Tile URL (Relative To Pi-Hole URL)"
                 ></ha-textfield>
               </div>
             </ha-expansion-panel>
@@ -853,6 +865,7 @@ class PiHoleSlimCardEditor extends HTMLElement {
     this._statusSwitchField = this.shadowRoot.querySelector("#status_switch");
     this._sizeField = this.shadowRoot.querySelector("#size");
     this._subEntitySizeField = this.shadowRoot.querySelector("#sub_entity_size");
+    this._transparentBackgroundField = this.shadowRoot.querySelector("#transparent_background");
     this._fields = Array.from(this.shadowRoot.querySelectorAll("[data-field]"));
 
     if (this._titleField) {
@@ -887,7 +900,7 @@ class PiHoleSlimCardEditor extends HTMLElement {
           ],
         },
       };
-      this._sizeField.label = "Tile height";
+      this._sizeField.label = "Tile Height";
       this._sizeField.addEventListener("value-changed", (event) => {
         this._updateSize(this._getEventValue(event));
       });
@@ -904,9 +917,17 @@ class PiHoleSlimCardEditor extends HTMLElement {
           ],
         },
       };
-      this._subEntitySizeField.label = "Sub entity size";
+      this._subEntitySizeField.label = "Sub Entity Text Size";
       this._subEntitySizeField.addEventListener("value-changed", (event) => {
         this._updateSubEntitySize(this._getEventValue(event));
+      });
+    }
+
+    if (this._transparentBackgroundField) {
+      this._transparentBackgroundField.selector = { boolean: {} };
+      this._transparentBackgroundField.label = "Transparent Background";
+      this._transparentBackgroundField.addEventListener("value-changed", (event) => {
+        this._updateTransparentBackground(this._getEventValue(event));
       });
     }
 
@@ -966,6 +987,10 @@ class PiHoleSlimCardEditor extends HTMLElement {
       this._subEntitySizeField.hass = this._hass;
     }
 
+    if (this._transparentBackgroundField) {
+      this._transparentBackgroundField.hass = this._hass;
+    }
+
     this._fields?.forEach((field) => {
       field.hass = this._hass;
     });
@@ -992,6 +1017,13 @@ class PiHoleSlimCardEditor extends HTMLElement {
 
     if (this._subEntitySizeField && this._subEntitySizeField.value !== this._config.sub_entity_size) {
       this._subEntitySizeField.value = this._config.sub_entity_size || "small";
+    }
+
+    if (
+      this._transparentBackgroundField
+      && this._transparentBackgroundField.value !== this._config.transparent_background
+    ) {
+      this._transparentBackgroundField.value = this._config.transparent_background;
     }
 
     this._fields?.forEach((field) => {
