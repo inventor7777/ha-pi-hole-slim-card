@@ -1,6 +1,4 @@
 const CARD_VERSION = "2026.05.05-1";
-const HOLD_DELAY_MS = 500;
-
 const SECTION_DEFINITIONS = [
   {
     key: "total_queries",
@@ -114,8 +112,6 @@ class PiHoleSlimCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._holdTimer = undefined;
-    this._heldElement = undefined;
   }
 
   static getConfigElement() {
@@ -274,26 +270,32 @@ class PiHoleSlimCard extends HTMLElement {
     return statusState === "off" || statusState === "unavailable";
   }
 
-  _clearHold() {
-    if (this._holdTimer) {
-      clearTimeout(this._holdTimer);
-      this._holdTimer = undefined;
+  _getActionHandler() {
+    let actionHandler = document.body.querySelector("action-handler");
+
+    if (!actionHandler) {
+      actionHandler = document.createElement("action-handler");
+      document.body.appendChild(actionHandler);
     }
-    this._heldElement = undefined;
+
+    return actionHandler;
   }
 
-  _startHold(element) {
-    const url = element?.dataset?.holdUrl?.trim();
-    if (!url || !element) return;
+  _handleAction(element, action) {
+    if (!element || !action) return;
 
-    this._clearHold();
-    this._heldElement = element;
-    this._holdTimer = window.setTimeout(() => {
-      if (this._heldElement !== element) return;
-      element.dataset.holdTriggered = "true";
-      this._openExternalUrl(url);
-      this._clearHold();
-    }, HOLD_DELAY_MS);
+    if (action === "hold") {
+      const url = element.dataset.holdUrl?.trim();
+      if (url) {
+        this._openExternalUrl(url);
+      }
+      return;
+    }
+
+    if (action === "tap") {
+      const entityId = element.dataset.entity;
+      this._openMoreInfo(entityId);
+    }
   }
 
   _renderSection(definition) {
@@ -348,23 +350,17 @@ class PiHoleSlimCard extends HTMLElement {
 
   _attachEvents() {
     this.shadowRoot.querySelectorAll("[data-entity]").forEach((element) => {
-      element.addEventListener("click", () => {
-        if (element.dataset.holdTriggered === "true") {
-          element.dataset.holdTriggered = "";
-          return;
-        }
-        const entityId = element.dataset.entity;
-        this._openMoreInfo(entityId);
+      const actionHandler = this._getActionHandler();
+      actionHandler.bind(element, {
+        hasHold: Boolean(element.dataset.holdUrl?.trim()),
+        hasDoubleClick: false,
       });
 
-      const cancelHold = () => this._clearHold();
-      element.addEventListener("pointerdown", () => {
-        element.dataset.holdTriggered = "";
-        this._startHold(element);
+      element.addEventListener("action", (event) => {
+        event.stopPropagation();
+        this._handleAction(element, event.detail?.action);
       });
-      element.addEventListener("pointerup", cancelHold);
-      element.addEventListener("pointerleave", cancelHold);
-      element.addEventListener("pointercancel", cancelHold);
+
       element.addEventListener("contextmenu", (event) => event.preventDefault());
     });
   }
