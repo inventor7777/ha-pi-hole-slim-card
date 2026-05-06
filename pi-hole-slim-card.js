@@ -112,6 +112,8 @@ class PiHoleSlimCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    this._tileElements = new Map();
+    this._rendered = false;
   }
 
   static getConfigElement() {
@@ -298,7 +300,58 @@ class PiHoleSlimCard extends HTMLElement {
     }
   }
 
-  _renderSection(definition) {
+  _bindActionHandler(element) {
+    this._getActionHandler().bind(element, {
+      hasHold: Boolean(element.dataset.holdUrl?.trim()),
+      hasDoubleClick: false,
+    });
+  }
+
+  _createSectionElement(definition) {
+    const tile = document.createElement("div");
+    tile.innerHTML = `
+      <div class="tile tile--${definition.accent}">
+        <button class="tile__main" type="button">
+          <div class="tile__body">
+            <div class="tile__label"></div>
+            <div class="tile__value"></div>
+            <ha-icon class="tile__icon"></ha-icon>
+          </div>
+        </button>
+        <button class="tile__footer" type="button" data-click-area="footer">
+          <span class="tile__footer-text"></span>
+          <ha-icon class="tile__arrow" icon="mdi:arrow-right-circle"></ha-icon>
+        </button>
+      </div>
+    `;
+
+    const root = tile.firstElementChild;
+    const mainButton = root.querySelector(".tile__main");
+    const footerButton = root.querySelector(".tile__footer");
+
+    [mainButton, footerButton].forEach((element) => {
+      this._bindActionHandler(element);
+      element.addEventListener("action", (event) => {
+        event.stopPropagation();
+        this._handleAction(element, event.detail?.action);
+      });
+      element.addEventListener("contextmenu", (event) => event.preventDefault());
+    });
+
+    this._tileElements.set(definition.key, {
+      root,
+      mainButton,
+      footerButton,
+      label: root.querySelector(".tile__label"),
+      value: root.querySelector(".tile__value"),
+      icon: root.querySelector(".tile__icon"),
+      footerText: root.querySelector(".tile__footer-text"),
+    });
+
+    return root;
+  }
+
+  _updateSectionElement(definition) {
     const sectionConfig = this._getSectionConfig(definition.key) || {};
     const stateObj = this._getStateObject(sectionConfig.entity);
     const accent = ACCENT_STYLES[definition.accent];
@@ -309,80 +362,48 @@ class PiHoleSlimCard extends HTMLElement {
     const disabled = !sectionConfig.entity;
     const footerEntity = sectionConfig.sub_entity || sectionConfig.entity;
     const sectionUrl = this._resolveSectionUrl(sectionConfig);
+    const elements = this._tileElements.get(definition.key);
+    if (!elements) return;
 
-    return `
-      <div
-        class="tile tile--${definition.accent}${disabled ? " tile--disabled" : ""}"
-        style="
-          --tile-bg: ${accent.bg};
-          --tile-bg-end: ${accent.bgEnd};
-          --tile-footer: ${accent.footer};
-          --tile-shadow: ${accent.shadow};
-        "
-      >
-        <button
-          class="tile__main"
-          type="button"
-          data-entity="${this._escapeHtml(sectionConfig.entity)}"
-          data-hold-url="${this._escapeHtml(sectionUrl || this._config?.pi_hole_url || "")}"
-          ${disabled ? "disabled" : ""}
-        >
-          <div class="tile__body">
-            <div class="tile__label">${this._escapeHtml(label)}</div>
-            <div class="tile__value">${this._escapeHtml(value)}</div>
-            <ha-icon class="tile__icon" icon="${this._escapeHtml(icon)}"></ha-icon>
-          </div>
-        </button>
-        <button
-          class="tile__footer"
-          type="button"
-          data-entity="${this._escapeHtml(footerEntity)}"
-          data-click-area="footer"
-          data-hold-url="${this._escapeHtml(sectionUrl || this._config?.pi_hole_url || "")}"
-          ${disabled ? "disabled" : ""}
-        >
-          <span class="tile__footer-text">${this._escapeHtml(footerText)}</span>
-          <ha-icon class="tile__arrow" icon="mdi:arrow-right-circle"></ha-icon>
-        </button>
-      </div>
-    `;
+    elements.root.className = `tile tile--${definition.accent}${disabled ? " tile--disabled" : ""}`;
+    elements.root.style.setProperty("--tile-bg", accent.bg);
+    elements.root.style.setProperty("--tile-bg-end", accent.bgEnd);
+    elements.root.style.setProperty("--tile-footer", accent.footer);
+    elements.root.style.setProperty("--tile-shadow", accent.shadow);
+
+    if (elements.label.textContent !== label) {
+      elements.label.textContent = label;
+    }
+    if (elements.value.textContent !== value) {
+      elements.value.textContent = value;
+    }
+    if (elements.footerText.textContent !== footerText) {
+      elements.footerText.textContent = footerText;
+    }
+    if (elements.icon.getAttribute("icon") !== icon) {
+      elements.icon.setAttribute("icon", icon);
+    }
+
+    const holdUrl = sectionUrl || this._config?.pi_hole_url || "";
+    elements.mainButton.dataset.entity = sectionConfig.entity || "";
+    elements.footerButton.dataset.entity = footerEntity || "";
+    elements.mainButton.dataset.holdUrl = holdUrl;
+    elements.footerButton.dataset.holdUrl = holdUrl;
+    elements.mainButton.disabled = disabled;
+    elements.footerButton.disabled = disabled;
+
+    this._bindActionHandler(elements.mainButton);
+    this._bindActionHandler(elements.footerButton);
   }
 
-  _attachEvents() {
-    this.shadowRoot.querySelectorAll("[data-entity]").forEach((element) => {
-      const actionHandler = this._getActionHandler();
-      actionHandler.bind(element, {
-        hasHold: Boolean(element.dataset.holdUrl?.trim()),
-        hasDoubleClick: false,
-      });
-
-      element.addEventListener("action", (event) => {
-        event.stopPropagation();
-        this._handleAction(element, event.detail?.action);
-      });
-
-      element.addEventListener("contextmenu", (event) => event.preventDefault());
-    });
-  }
-
-  _render() {
-    if (!this.shadowRoot || !this._config) return;
-
-    const title = this._config.title?.trim();
-    const sizeClass = this._config.size === "compact" ? "card--compact" : "card--large";
-    const isDimmed = this._isDimmedByStatus();
-    const subEntitySize = this._config.sub_entity_size || "small";
-    const cardBackground = this._config.transparent_background
-      ? "rgba(0, 0, 0, 0)"
-      : "var(--ha-card-background, var(--card-background-color, #111827))";
+  _renderStructure() {
+    if (this._rendered || !this.shadowRoot) return;
 
     this.shadowRoot.innerHTML = `
       <ha-card>
-        <div class="card ${sizeClass}${isDimmed ? " card--status-dimmed" : ""} card--sub-entity-${this._escapeHtml(subEntitySize)}">
-          ${title ? `<div class="card__title">${this._escapeHtml(title)}</div>` : ""}
-          <div class="grid">
-            ${SECTION_DEFINITIONS.map((definition) => this._renderSection(definition)).join("")}
-          </div>
+        <div class="card">
+          <div class="card__title" hidden></div>
+          <div class="grid"></div>
         </div>
       </ha-card>
       <style>
@@ -393,7 +414,7 @@ class PiHoleSlimCard extends HTMLElement {
         ha-card {
           overflow: hidden;
           border-radius: 22px;
-          background: ${cardBackground};
+          background: var(--pi-hole-slim-card-background, var(--ha-card-background, var(--card-background-color, #111827)));
         }
 
         .card {
@@ -626,7 +647,38 @@ class PiHoleSlimCard extends HTMLElement {
       </style>
     `;
 
-    this._attachEvents();
+    this._haCard = this.shadowRoot.querySelector("ha-card");
+    this._cardElement = this.shadowRoot.querySelector(".card");
+    this._titleElement = this.shadowRoot.querySelector(".card__title");
+    this._gridElement = this.shadowRoot.querySelector(".grid");
+
+    SECTION_DEFINITIONS.forEach((definition) => {
+      this._gridElement.appendChild(this._createSectionElement(definition));
+    });
+
+    this._rendered = true;
+  }
+
+  _render() {
+    if (!this.shadowRoot || !this._config) return;
+
+    this._renderStructure();
+
+    const title = this._config.title?.trim();
+    const sizeClass = this._config.size === "compact" ? "card--compact" : "card--large";
+    const isDimmed = this._isDimmedByStatus();
+    const subEntitySize = this._config.sub_entity_size || "small";
+    const cardBackground = this._config.transparent_background
+      ? "rgba(0, 0, 0, 0)"
+      : "var(--ha-card-background, var(--card-background-color, #111827))";
+    this._haCard?.style.setProperty("background", cardBackground);
+    this._cardElement.className = `card ${sizeClass}${isDimmed ? " card--status-dimmed" : ""} card--sub-entity-${this._escapeHtml(subEntitySize)}`;
+    this._titleElement.hidden = !title;
+    if (this._titleElement.textContent !== title) {
+      this._titleElement.textContent = title;
+    }
+
+    SECTION_DEFINITIONS.forEach((definition) => this._updateSectionElement(definition));
   }
 }
 
