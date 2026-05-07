@@ -671,7 +671,10 @@ class PiHoleSlimCard extends HTMLElement {
     const cardBackground = this._config.transparent_background
       ? "rgba(0, 0, 0, 0)"
       : "var(--ha-card-background, var(--card-background-color, #111827))";
+    const cardBackdropFilter = this._config.transparent_background ? "none" : "";
     this._haCard?.style.setProperty("background", cardBackground);
+    this._haCard?.style.setProperty("backdrop-filter", cardBackdropFilter);
+    this._haCard?.style.setProperty("-webkit-backdrop-filter", cardBackdropFilter);
     this._cardElement.className = `card ${sizeClass}${isDimmed ? " card--status-dimmed" : ""} card--sub-entity-${this._escapeHtml(subEntitySize)}`;
     this._titleElement.hidden = !title;
     if (this._titleElement.textContent !== title) {
